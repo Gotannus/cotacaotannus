@@ -1,5 +1,4 @@
-
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8" />
@@ -14,9 +13,6 @@
     label, input { display: block; margin-top: 10px; }
     input { padding: 8px; width: 100%; box-sizing: border-box; }
     .resultado { font-size: 18px; font-weight: bold; margin-top: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-    th { background-color: #f2f2f2; }
   </style>
 </head>
 <body>
@@ -43,7 +39,7 @@
   <script>
     let cotacaoParalelaValor = 0;
     const SPREAD = 0.089;
-    const USD_BRL_PARALELO = 6.15; // Valor estimado do câmbio paralelo real
+    const USD_BRL_PARALELO = 6.15; // Estimativa do câmbio paralelo R$1 = US$6.15
 
     async function carregarCotacaoParalela() {
       try {
@@ -51,10 +47,8 @@
         const dolarBlue = blue.sell;
         const cotacaoBase = dolarBlue / USD_BRL_PARALELO;
         const cotacaoComSpread = cotacaoBase * (1 - SPREAD);
-
         cotacaoParalelaValor = cotacaoComSpread;
         document.getElementById("cotacaoParalela").innerText = `AR$ ${cotacaoComSpread.toFixed(2)} por R$1`;
-
       } catch (err) {
         document.getElementById("cotacaoParalela").innerText = "Erro ao calcular cotação.";
       }
