@@ -1,68 +1,147 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Painel Cambial Tannus</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cambista Pro – Radar Inteligente</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
-    .container { max-width: 700px; margin: auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
+    .container { max-width: 900px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
     h1, h2 { text-align: center; color: #333; }
-    .bloco { margin-bottom: 20px; }
-    .alerta { background: #e0ffe0; padding: 10px; border-left: 5px solid green; font-weight: bold; }
-    label, input { display: block; margin-top: 10px; }
-    input { padding: 8px; width: 100%; box-sizing: border-box; }
-    .resultado { font-size: 18px; font-weight: bold; margin-top: 10px; }
+    .bloco { margin-bottom: 30px; }
+    label { font-weight: bold; margin-top: 15px; display: block; }
+    input { width: 100%; padding: 10px; margin-top: 5px; font-size: 16px; box-sizing: border-box; }
+    .resultado, .alerta { font-size: 18px; margin-top: 20px; padding: 10px; border-radius: 5px; }
+    .resultado { background: #eaf7ea; border-left: 5px solid #28a745; }
+    .alerta { background: #fff3cd; border-left: 5px solid #ffc107; }
+    canvas { width: 100% !important; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Painel Cambial Tannus</h1>
+    <h1>Cambista Pro – Radar Inteligente</h1>
+    <p style="text-align:center;">Ferramenta avançada para antecipar o melhor momento de trocar seus Reais por Pesos no mercado paralelo.</p>
 
-    <div class="bloco alerta" id="mensagemAlerta">
-      Calculando tendência...
+    <div class="bloco">
+      <h2>Configurações</h2>
+      <label for="usdBrl">Cotação USD/BRL (paralelo):</label>
+      <input type="number" id="usdBrl" value="6.15" step="0.01">
+
+      <label for="cotacaoCambista">Cotação do cambista (AR$ por R$1):</label>
+      <input type="number" id="cotacaoCambista" value="195" step="0.01">
     </div>
 
     <div class="bloco">
-      <h2>Cotação Paralela Real (baseada em BlueDollar)</h2>
-      <p id="cotacaoParalela">Carregando...</p>
+      <h2>Visão Geral</h2>
+      <div class="resultado" id="valorJusto">Calculando valor justo...</div>
+      <div class="alerta" id="alerta">Aguardando análise...</div>
     </div>
 
     <div class="bloco">
-      <h2>Simulador Automático (em Reais)</h2>
-      <label for="valorReais">Digite o valor em R$:</label>
-      <input type="number" id="valorReais" placeholder="Ex: 1000" />
-      <div class="resultado" id="resultadoSimulador">AR$ 0,00</div>
+      <h2>Projeção e Tendência</h2>
+      <canvas id="grafico" height="150"></canvas>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    let cotacaoParalelaValor = 0;
-    const SPREAD = 0.089;
-    const USD_BRL_PARALELO = 6.15; // Estimativa do câmbio paralelo R$1 = US$6.15
+    // Constantes
+    const SPREAD_DEFAULT = 0.089;
+    const MAX_HIST = 15;
 
-    async function carregarCotacaoParalela() {
-      try {
-        const blue = await fetch("https://bluedollar.net/api/informal-rate").then(res => res.json());
-        const dolarBlue = blue.sell;
-        const cotacaoBase = dolarBlue / USD_BRL_PARALELO;
-        const cotacaoComSpread = cotacaoBase * (1 - SPREAD);
-        cotacaoParalelaValor = cotacaoComSpread;
-        document.getElementById("cotacaoParalela").innerText = `AR$ ${cotacaoComSpread.toFixed(2)} por R$1`;
-      } catch (err) {
-        document.getElementById("cotacaoParalela").innerText = "Erro ao calcular cotação.";
+    // Elementos
+    const usdBrlInput = document.getElementById('usdBrl');
+    const cambistaInput = document.getElementById('cotacaoCambista');
+    const valorJustoEl = document.getElementById('valorJusto');
+    const alertaEl = document.getElementById('alerta');
+    const ctx = document.getElementById('grafico').getContext('2d');
+
+    let chart;
+
+    // Carrega histórico do localStorage
+    let historico = JSON.parse(localStorage.getItem('cambistaProHistorico') || '[]');
+
+    // Função para salvar histórico
+    function salvarHistorico(valor) {
+      const hoje = new Date().toLocaleDateString('pt-BR');
+      const exists = historico.find(e => e.dia === hoje);
+      if (!exists) {
+        historico.push({ dia: hoje, valor });
+        if (historico.length > MAX_HIST) historico.shift();
+        localStorage.setItem('cambistaProHistorico', JSON.stringify(historico));
       }
     }
 
-    document.getElementById("valorReais").addEventListener("input", () => {
-      const valor = parseFloat(document.getElementById("valorReais").value);
-      const resultado = isNaN(valor) ? 0 : valor * cotacaoParalelaValor;
-      document.getElementById("resultadoSimulador").innerText = `AR$ ${resultado.toFixed(2)}`;
-    });
+    // Atualiza gráfico
+    function atualizarGrafico() {
+      const labels = historico.map(e => e.dia);
+      const data = historico.map(e => e.valor);
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{ label: 'Valor Justo (AR$/R$)', data, borderColor: '#007bff', fill: false, tension: 0.2 }]
+        },
+        options: {
+          scales: { y: { beginAtZero: false } }
+        }
+      });
+    }
 
-    (async () => {
-      await carregarCotacaoParalela();
-    })();
+    // Função principal
+    async function atualizar() {
+      try {
+        const usdBrl = parseFloat(usdBrlInput.value);
+        const cotCambista = parseFloat(cambistaInput.value);
+
+        // Busca dólar blue
+        const resp = await fetch('https://api.bluelytics.com.ar/v2/latest');
+        const data = await resp.json();
+        const dolarBlue = data.blue.value_sell;
+
+        // Cálculo do valor justo
+        const valorJusto = dolarBlue / usdBrl;
+        valorJustoEl.innerText = `💰 Valor justo: AR$ ${valorJusto.toFixed(2)} por R$1`;
+
+        // Salva no histórico
+        salvarHistorico(parseFloat(valorJusto.toFixed(2)));
+        atualizarGrafico();
+
+        // Cálculo de tendência: média móvel e desvio
+        const valores = historico.map(e => e.valor);
+        const mediaMovel = valores.slice(-5).reduce((a,b)=>a+b,0)/Math.min(valores.length,5);
+
+        // Spread do cambista
+        const spreadPerc = ((cotCambista/valorJusto)-1)*100;
+
+        // Mensagens de alerta
+        if (spreadPerc > 3) {
+          alertaEl.innerText = `🔥 O cambista está pagando muito bem (+${spreadPerc.toFixed(2)}%). Ótimo momento para trocar.`;
+          alertaEl.style.background = '#d4f4dd';
+          alertaEl.style.borderLeft = '5px solid green';
+        } else if (spreadPerc < -3) {
+          alertaEl.innerText = `⚠️ Pagamento ruim (−${Math.abs(spreadPerc).toFixed(2)}%). Considere esperar.`;
+          alertaEl.style.background = '#fde3e3';
+          alertaEl.style.borderLeft = '5px solid red';
+        } else {
+          alertaEl.innerText = `📊 Spread de ${spreadPerc.toFixed(2)}%. Dentro da média.`;
+          alertaEl.style.background = '#fffbe0';
+          alertaEl.style.borderLeft = '5px solid orange';
+        }
+
+      } catch (e) {
+        valorJustoEl.innerText = 'Erro ao obter dados.';
+        alertaEl.innerText = 'Tente novamente mais tarde.';
+      }
+    }
+
+    // Eventos
+    usdBrlInput.addEventListener('input', atualizar);
+    cambistaInput.addEventListener('input', atualizar);
+
+    // Inicializa
+    atualizar();
   </script>
 </body>
 </html>
