@@ -1,0 +1,151 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Painel Cambial Tannus</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    .container { max-width: 700px; margin: auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    h1, h2 { text-align: center; color: #333; }
+    .bloco { margin-bottom: 20px; }
+    .alerta { background: #e0ffe0; padding: 10px; border-left: 5px solid green; font-weight: bold; }
+    label, input { display: block; margin-top: 10px; }
+    input { padding: 8px; width: 100%; box-sizing: border-box; }
+    .resultado { font-size: 18px; font-weight: bold; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f2f2f2; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Painel Cambial Tannus</h1>
+
+    <div class="bloco alerta" id="mensagemAlerta">
+      Calculando tendência...
+    </div>
+
+    <div class="bloco">
+      <h2>Cotação Paralela Projetada (com spread real de mercado)</h2>
+      <p id="cotacaoParalela">Carregando...</p>
+    </div>
+
+    <div class="bloco">
+      <h2>Simulador Automático (em Reais)</h2>
+      <label for="valorReais">Digite o valor em R$:</label>
+      <input type="number" id="valorReais" placeholder="Ex: 1000" />
+      <div class="resultado" id="resultadoSimulador">AR$ 0,00</div>
+    </div>
+
+    <div class="bloco">
+      <h2>Histórico de Cotação Paralela (R$ → AR$)</h2>
+      <table>
+        <thead>
+          <tr><th>Data</th><th>AR$ por R$1</th><th>Com R$1000 você teria recebido</th></tr>
+        </thead>
+        <tbody id="historicoReverso">
+          <tr><td colspan="3">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let cotacaoParalelaValor = 0;
+    const SPREAD = 0.089;
+
+    async function carregarCotacaoParalela() {
+      try {
+        const blue = await fetch("https://api.bluelytics.com.ar/v2/latest").then(res => res.json());
+        const usdbrl = await fetch("https://open.er-api.com/v6/latest/USD").then(res => res.json());
+
+        const dolarBlue = blue.blue.value_sell;
+        const usdToBrl = usdbrl.rates.BRL;
+        const cotacaoBase = dolarBlue / usdToBrl;
+        const cotacaoComSpread = cotacaoBase * (1 - SPREAD); // aplica o spread contra o usuário
+
+        cotacaoParalelaValor = cotacaoComSpread;
+        document.getElementById("cotacaoParalela").innerText = `AR$ ${cotacaoComSpread.toFixed(2)} por R$1`;
+
+      } catch (err) {
+        document.getElementById("cotacaoParalela").innerText = "Erro ao calcular cotação.";
+      }
+    }
+
+    document.getElementById("valorReais").addEventListener("input", () => {
+      const valor = parseFloat(document.getElementById("valorReais").value);
+      const resultado = isNaN(valor) ? 0 : valor * cotacaoParalelaValor;
+      document.getElementById("resultadoSimulador").innerText = `AR$ ${resultado.toFixed(2)}`;
+    });
+
+    async function carregarHistoricoRealParaPeso() {
+      const tbody = document.getElementById("historicoReverso");
+      tbody.innerHTML = "";
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const formatted = date.toISOString().split("T")[0];
+        try {
+          const blue = await fetch("https://api.bluelytics.com.ar/v2/evolution.json?days=30").then(res => res.json());
+          const usdbrl = await fetch("https://open.er-api.com/v6/latest/USD").then(res => res.json());
+          const usdToBrl = usdbrl.rates.BRL;
+
+          const dayBlue = blue.find(item => item.date === formatted);
+          if (!dayBlue) continue;
+
+          const dolarBlue = dayBlue.value_sell;
+          const cotacaoParalela = (dolarBlue / usdToBrl) * (1 - SPREAD);
+          const pesos = 1000 * cotacaoParalela;
+
+          const row = `<tr><td>${formatted}</td><td>AR$ ${cotacaoParalela.toFixed(2)}</td><td>AR$ ${pesos.toFixed(2)}</td></tr>`;
+          tbody.innerHTML += row;
+        } catch (err) {
+          tbody.innerHTML += `<tr><td>${formatted}</td><td colspan="2">Erro</td></tr>`;
+        }
+      }
+    }
+
+    async function calcularTendencia() {
+      const mensagem = document.getElementById("mensagemAlerta");
+      try {
+        const blue = await fetch("https://api.bluelytics.com.ar/v2/evolution.json?days=7").then(res => res.json());
+        const usdbrl = await fetch("https://open.er-api.com/v6/latest/USD").then(res => res.json());
+        const usdToBrl = usdbrl.rates.BRL;
+
+        const ultimos5Dias = blue.slice(-5);
+        const cotacoes = ultimos5Dias.map(d => (d.value_sell / usdToBrl) * (1 - SPREAD));
+        let subindo = 0, descendo = 0;
+
+        for (let i = 1; i < cotacoes.length; i++) {
+          if (cotacoes[i] > cotacoes[i - 1]) subindo++;
+          else if (cotacoes[i] < cotacoes[i - 1]) descendo++;
+        }
+
+        if (descendo >= 3) {
+          mensagem.innerText = "📉 O real está desvalorizando frente ao peso. Trocar agora pode evitar perdas maiores.";
+          mensagem.style.background = "#ffe5e5";
+          mensagem.style.borderLeft = "5px solid red";
+        } else if (subindo >= 3) {
+          mensagem.innerText = "📈 O real está ganhando força. Pode valer a pena esperar um pouco mais.";
+          mensagem.style.background = "#e0ffe0";
+          mensagem.style.borderLeft = "5px solid green";
+        } else {
+          mensagem.innerText = "↔️ Mercado estável nos últimos dias. Sem tendência clara.";
+          mensagem.style.background = "#fffbe5";
+          mensagem.style.borderLeft = "5px solid orange";
+        }
+      } catch (err) {
+        mensagem.innerText = "Erro ao calcular tendência.";
+      }
+    }
+
+    (async () => {
+      await carregarCotacaoParalela();
+      await carregarHistoricoRealParaPeso();
+      await calcularTendencia();
+    })();
+  </script>
+</body>
+</html>
